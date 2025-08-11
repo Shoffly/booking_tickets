@@ -265,12 +265,3 @@ with st.form("create_case_form"):
             except Exception as e:
                 st.error(f"Error creating case: {str(e)}")
 
-# Add some helpful information
-st.markdown("---")
-st.markdown("### 💡 Tips for Creating Cases")
-st.markdown("""
-- **Be specific** in your case details to help the accountable department understand the issue
-- **Include relevant context** such as error messages, steps to reproduce, or expected behavior
-- **Select appropriate bucket** to ensure proper categorization and routing
-- **Add dealer/car information** when relevant to provide additional context
-""")
