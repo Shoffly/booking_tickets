@@ -329,7 +329,7 @@ def load_open_visits():
             confirmed_at
         FROM `pricing-338819.wholesale_test.pre_visit_confirmation`
         WHERE status = 'open' 
-           OR (status = 'confirmed' AND visit_date >= CURRENT_DATE())
+           OR (status = 'confirmed')
         ORDER BY opened_at DESC
         """
 
