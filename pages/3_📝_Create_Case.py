@@ -16,12 +16,10 @@ st.set_page_config(
 st.title("📝 Create New Case")
 
 
-# Load data function (simplified version - you may need to import from utils)
-@st.cache_data(ttl=43200)  # Cache data for 12 hours
-def load_case_data():
-    """Load necessary data for case creation"""
+# Get BigQuery client
+def get_bigquery_client():
+    """Get BigQuery client with credentials"""
     try:
-        # Get credentials
         credentials = None
         try:
             credentials = service_account.Credentials.from_service_account_info(
@@ -33,85 +31,97 @@ def load_case_data():
                     'service_account.json'
                 )
             except FileNotFoundError:
-                return None, None, None
+                return None
 
         if credentials:
-            client = bigquery.Client(credentials=credentials)
-
-            # Load dealer data
-            dealer_query = """
-            SELECT DISTINCT dealer_code, dealer_name
-            FROM `pricing-338819.ajans_dealers.dealer_full_segmentation`
-            WHERE dealer_code IS NOT NULL AND dealer_name IS NOT NULL
-            ORDER BY dealer_name
-
-            """
-
-                        # Load car data from the actual live cars query (simplified version)
-            car_query = """
-            with publishing AS (
-            SELECT sf_vehicle_name,
-                   publishing_state,
-                   days_on_app AS DOA,
-                   MAX(published_at) over (partition by sf_vehicle_name) AS max_publish_date
-            FROM ajans_dealers.ajans_wholesale_to_retail_publishing_logs
-            WHERE sf_vehicle_name NOT in ("C-32211","C-32203") 
-            QUALIFY published_at = max_publish_date
-            ),
-
-            live_cars AS (
-            SELECT sf_vehicle_name,
-                   type AS live_status
-            FROM reporting.ajans_vehicle_history 
-            WHERE date_key = current_date() ),
-
-            car_info AS (
-            with max_date AS (
-            SELECT sf_vehicle_name,
-                   make,
-                   model,
-                   year,
-                   row_number()over(PARTITION BY sf_vehicle_name ORDER BY event_date DESC) AS row_number
-            FROM ajans_dealers.vehicle_activity )
-
-            SELECT sf_vehicle_name, make, model, year
-            FROM max_date WHERE row_number = 1 )
-
-            SELECT DISTINCT publishing.sf_vehicle_name,
-                   CONCAT(car_info.make, ' ', car_info.model, ' (', CAST(car_info.year AS STRING), ') - ', publishing.sf_vehicle_name) as display_name
-            FROM publishing
-            LEFT JOIN live_cars ON publishing.sf_vehicle_name = live_cars.sf_vehicle_name
-            LEFT JOIN car_info ON publishing.sf_vehicle_name = car_info.sf_vehicle_name 
-            LEFT JOIN reporting.vehicle_acquisition_to_selling a ON publishing.sf_vehicle_name = a.car_name
-            WHERE a.allocation_category = "Wholesale" AND a.current_status in ("Published" , "Being Sold")
-            ORDER BY display_name
-            """
-
-            try:
-                dealer_results = client.query(dealer_query).result()
-                car_results = client.query(car_query).result()
-
-                dealers = [{"dealer_code": row.dealer_code, "dealer_name": row.dealer_name} 
-                          for row in dealer_results]
-                cars = [{"sf_vehicle_name": row.sf_vehicle_name, "display_name": row.display_name} 
-                       for row in car_results]
-
-                return dealers, cars, client
-            except Exception as e:
-                st.error(f"Error loading data: {str(e)}")
-                return None, None, None
-
+            return bigquery.Client(credentials=credentials)
+        return None
     except Exception as e:
         st.error(f"Error connecting to database: {str(e)}")
-        return None, None, None
+        return None
+
+# Load data function (cache only the data, not the client)
+@st.cache_data(ttl=43200)  # Cache data for 12 hours
+def load_case_data():
+    """Load necessary data for case creation"""
+    client = get_bigquery_client()
+    if not client:
+        return None, None
+        
+    try:
+        # Load dealer data
+        dealer_query = """
+        SELECT DISTINCT dealer_code, dealer_name
+        FROM `pricing-338819.ajans_dealers.dealer_full_segmentation`
+        WHERE dealer_code IS NOT NULL AND dealer_name IS NOT NULL
+        ORDER BY dealer_name
+        """
+
+        # Load car data from the actual live cars query (simplified version)
+        car_query = """
+        with publishing AS (
+        SELECT sf_vehicle_name,
+               publishing_state,
+               days_on_app AS DOA,
+               MAX(published_at) over (partition by sf_vehicle_name) AS max_publish_date
+        FROM ajans_dealers.ajans_wholesale_to_retail_publishing_logs
+        WHERE sf_vehicle_name NOT in ("C-32211","C-32203") 
+        QUALIFY published_at = max_publish_date
+        ),
+
+        live_cars AS (
+        SELECT sf_vehicle_name,
+               type AS live_status
+        FROM reporting.ajans_vehicle_history 
+        WHERE date_key = current_date() ),
+
+        car_info AS (
+        with max_date AS (
+        SELECT sf_vehicle_name,
+               make,
+               model,
+               year,
+               row_number()over(PARTITION BY sf_vehicle_name ORDER BY event_date DESC) AS row_number
+        FROM ajans_dealers.vehicle_activity )
+
+        SELECT sf_vehicle_name, make, model, year
+        FROM max_date WHERE row_number = 1 )
+
+        SELECT DISTINCT publishing.sf_vehicle_name,
+               CONCAT(car_info.make, ' ', car_info.model, ' (', CAST(car_info.year AS STRING), ') - ', publishing.sf_vehicle_name) as display_name
+        FROM publishing
+        LEFT JOIN live_cars ON publishing.sf_vehicle_name = live_cars.sf_vehicle_name
+        LEFT JOIN car_info ON publishing.sf_vehicle_name = car_info.sf_vehicle_name 
+        LEFT JOIN reporting.vehicle_acquisition_to_selling a ON publishing.sf_vehicle_name = a.car_name
+        WHERE a.allocation_category = "Wholesale" AND a.current_status in ("Published" , "Being Sold")
+        ORDER BY display_name
+        """
+
+        try:
+            dealer_results = client.query(dealer_query).result()
+            car_results = client.query(car_query).result()
+
+            dealers = [{"dealer_code": row.dealer_code, "dealer_name": row.dealer_name} 
+                      for row in dealer_results]
+            cars = [{"sf_vehicle_name": row.sf_vehicle_name, "display_name": row.display_name} 
+                   for row in car_results]
+
+            return dealers, cars
+        except Exception as e:
+            st.error(f"Error loading data: {str(e)}")
+            return None, None
+
+    except Exception as e:
+        st.error(f"Error querying database: {str(e)}")
+        return None, None
 
 
 # Load data
 with st.spinner("Loading data..."):
-    dealers, cars, client = load_case_data()
+    dealers, cars = load_case_data()
 
-if client is None:
-    st.error("Unable to connect to the database. Please check your credentials.")
+if dealers is None or cars is None:
+    st.error("Unable to load data. Please check your database connection and credentials.")
     st.stop()
 
 # Predefined buckets
@@ -179,6 +189,12 @@ with st.form("create_case_form"):
             st.error("Please enter case details")
         else:
             try:
+                # Get a fresh client for submission
+                client = get_bigquery_client()
+                if not client:
+                    st.error("Unable to connect to the database. Please check your credentials.")
+                    st.stop()
+                
                 # Generate a unique case ID
                 case_id = f"CASE-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
