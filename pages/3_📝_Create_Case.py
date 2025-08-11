@@ -49,10 +49,43 @@ def load_case_data():
 
             # Load car data
             car_query = """
-            SELECT DISTINCT sf_vehicle_name
-            FROM `pricing-338819.wholesale_test.live_cars`
-            WHERE sf_vehicle_name IS NOT NULL
-            ORDER BY sf_vehicle_name
+            with publishing AS (
+        SELECT sf_vehicle_name,
+               publishing_state,
+               MAX(published_at) over (partition by sf_vehicle_name) AS max_publish_date
+        FROM ajans_dealers.ajans_wholesale_to_retail_publishing_logs
+        WHERE sf_vehicle_name NOT in ("C-32211","C-32203") 
+        QUALIFY published_at = max_publish_date
+        ),
+
+        live_cars AS (
+        SELECT sf_vehicle_name,
+               type AS live_status
+        FROM reporting.ajans_vehicle_history 
+        WHERE date_key = current_date() ),
+
+        car_info AS (
+        with max_date AS (
+        SELECT sf_vehicle_name,
+               make,
+               model,
+               year,
+               row_number()over(PARTITION BY sf_vehicle_name ORDER BY event_date DESC) AS row_number
+        FROM ajans_dealers.vehicle_activity )
+
+        SELECT *
+        FROM max_date WHERE row_number = 1 )
+
+        SELECT DISTINCT publishing.sf_vehicle_name,
+               COALESCE(car_info.make, 'Unknown') as make,
+               COALESCE(car_info.model, 'Unknown') as model,
+               COALESCE(car_info.year, 0) as year
+        FROM publishing
+        LEFT JOIN live_cars ON publishing.sf_vehicle_name = live_cars.sf_vehicle_name
+        LEFT JOIN reporting.vehicle_acquisition_to_selling a ON publishing.sf_vehicle_name = a.car_name
+        LEFT JOIN car_info ON publishing.sf_vehicle_name = car_info.sf_vehicle_name
+        WHERE allocation_category = "Wholesale" AND current_status in ("Published" , "Being Sold")
+        ORDER BY publishing.sf_vehicle_name
             """
 
             try:
