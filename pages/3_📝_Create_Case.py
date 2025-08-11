@@ -41,9 +41,10 @@ def load_case_data():
             # Load dealer data
             dealer_query = """
             SELECT DISTINCT dealer_code, dealer_name
-            FROM `pricing-338819.wholesale_test.dealer_segmentation`
+            FROM `pricing-338819.ajans_dealers.dealer_full_segmentation`
             WHERE dealer_code IS NOT NULL AND dealer_name IS NOT NULL
             ORDER BY dealer_name
+
             """
 
             # Load car data
