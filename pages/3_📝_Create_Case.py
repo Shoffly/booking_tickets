@@ -15,13 +15,6 @@ st.set_page_config(
 
 st.title("📝 Create New Case")
 
-# Check if user is authenticated (assuming similar auth pattern as other pages)
-if "current_user" not in st.session_state:
-    st.error("Please log in to access this page")
-    st.stop()
-
-
-
 
 # Load data function (simplified version - you may need to import from utils)
 @st.cache_data(ttl=43200)  # Cache data for 12 hours
